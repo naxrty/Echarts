@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>2026 年各季度销售额</title>
+
+  <!-- 本地版：用同目录下的库文件，断网也能打开 -->
+  <script src="echarts.min.js"></script>
+
+  <style>
+    body {
+      font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
+      margin: 0;
+      padding: 40px 20px;
+      background: #f7f8fa;
+    }
+    #chart {
+      width: 900px;
+      max-width: 100%;
+      height: 480px;
+      margin: 0 auto;
+      background: #fff;
+      border-radius: 10px;
+      box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="chart"></div>
+
+  <script>
+    // ① 找到画板并初始化
+    var chart = echarts.init(document.getElementById('chart'));
+
+    // ② 点菜单
+    var option = {
+      color: ['#4a7cf7'],
+
+      title: {
+        text: '2026 年各季度销售额',
+        subtext: '单位：万元',
+        left: 'center',
+        top: 18,
+        textStyle: { fontSize: 17 },
+        subtextStyle: { color: '#999' }
+      },
+
+      tooltip: {
+        trigger: 'axis',
+        axisPointer: { type: 'shadow' }
+      },
+
+      grid: { left: 70, right: 50, top: 100, bottom: 60 },
+
+      xAxis: {
+        type: 'category',
+        data: ['一季度', '二季度', '三季度', '四季度'],
+        axisLine: { lineStyle: { color: '#ddd' } },
+        axisTick: { show: false },
+        axisLabel: { color: '#666', fontSize: 13 }
+      },
+
+      yAxis: {
+        type: 'value',
+        name: '销售额（万元）',
+        nameTextStyle: { color: '#999', padding: [0, 0, 8, 0] },
+        splitLine: { lineStyle: { color: '#f0f0f0' } },
+        axisLabel: { color: '#666' }
+      },
+
+      series: [{
+        name: '销售额',
+        type: 'bar',
+        barWidth: '45%',
+        data: [120, 200, 150, 80],
+        itemStyle: { borderRadius: [6, 6, 0, 0] },
+        label: {
+          show: true,
+          position: 'top',
+          color: '#333',
+          fontSize: 13,
+          formatter: '{c}'
+        }
+      }]
+    };
+
+    // ③ 交给 ECharts 画
+    chart.setOption(option);
+
+    // ④ 窗口大小变化时自适应
+    window.addEventListener('resize', function () {
+      chart.resize();
+    });
+  </script>
+
+</body>
+</html>
