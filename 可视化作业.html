@@ -1,0 +1,823 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>目的地匹配地图</title>
+
+<!-- ECharts（本地优先，CDN 兜底） -->
+<script src="lib/echarts.min.js"></script>
+<script>if(typeof echarts==='undefined')document.write('<script src="https://cdn.jsdelivr.net/npm/echarts@5.5.0/dist/echarts.min.js"><\/script>')</script>
+<script src="lib/echarts-wordcloud.min.js"></script>
+<!-- 数据（JS 全局变量，file:// 下可离线加载） -->
+<script src="data/world_geo.js"></script>
+<script src="data/world_data.js"></script>
+
+<style>
+:root{
+  --bg:#eef5ff; --bg2:#e2efff; --card:rgba(255,255,255,.90);
+  --line:rgba(80,130,200,.18); --line2:rgba(80,130,200,.32);
+  --txt:#1e293b; --sub:#64748b; --dim:#94a3b8;
+  --cyan:#0ea5e9; --gold:#d97706; --green:#059669; --red:#dc2626; --amber:#ea580c;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  font-family:system-ui,-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;
+  color:var(--txt);background:linear-gradient(135deg,var(--bg),var(--bg2) 60%,#f7fbff);
+  overflow-x:hidden;
+}
+.app{display:flex;min-height:100vh}
+
+/* ===== 左侧控制栏 ===== */
+.sidebar{
+  width:300px;flex:0 0 300px;position:sticky;top:0;height:100vh;overflow-y:auto;
+  padding:20px 18px;background:linear-gradient(180deg,rgba(255,255,255,.96),rgba(244,249,255,.96));
+  border-right:1px solid var(--line);z-index:5;
+}
+.brand{display:flex;align-items:center;gap:9px}
+.brand .logo{font-size:25px}
+.brand h1{font-size:18px;letter-spacing:.5px}
+.brand .sub{font-size:10.5px;color:var(--sub);margin-top:2px}
+.thesis{
+  font-size:11.5px;line-height:1.65;color:#1e293b;background:rgba(14,165,233,.07);
+  border:1px solid rgba(14,165,233,.22);border-radius:11px;padding:10px 12px;margin:14px 0 18px;
+}
+.thesis b{color:var(--gold)}
+.sec-title{font-size:11px;color:var(--dim);letter-spacing:1.5px;text-transform:uppercase;margin:18px 0 10px;font-weight:700}
+.ctrl{margin-bottom:16px}
+.ctrl label{display:flex;justify-content:space-between;align-items:baseline;font-size:12.5px;margin-bottom:7px}
+.ctrl label .val{color:var(--cyan);font-weight:700;font-variant-numeric:tabular-nums}
+.ctrl input[type=range]{width:100%;accent-color:var(--cyan);cursor:pointer}
+.ctrl .hint{font-size:10px;color:var(--sub);margin-top:4px;line-height:1.45}
+.btn-row{display:flex;gap:8px;margin-top:8px}
+.btn{
+  flex:1;font-size:11.5px;padding:8px 0;border-radius:9px;cursor:pointer;
+  border:1px solid var(--line);background:rgba(14,165,233,.08);color:var(--txt);transition:.2s;
+}
+.btn:hover{background:rgba(14,165,233,.18);border-color:var(--cyan)}
+.legend{
+  margin-top:14px;padding:10px 12px;background:rgba(226,238,252,.7);border-radius:10px;border:1px solid var(--line);
+}
+.legend .t{font-size:10.5px;color:var(--sub);margin-bottom:7px}
+.legend .bar{height:9px;border-radius:5px;background:linear-gradient(90deg,#dc2626,#ea580c,#eab308,#65a30d,#16a34a)}
+.legend .lbl{display:flex;justify-content:space-between;font-size:9.5px;color:var(--sub);margin-top:4px}
+.side-foot{font-size:9.5px;color:var(--dim);line-height:1.6;margin-top:20px;border-top:1px solid var(--line);padding-top:10px}
+
+/* ===== 右侧主区 ===== */
+.main{flex:1;min-width:0;padding:16px 20px 40px;display:flex;flex-direction:column;gap:14px}
+.topbar{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.crumb{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--sub)}
+.crumb .node{cursor:pointer;padding:5px 11px;border-radius:8px;border:1px solid var(--line);background:rgba(255,255,255,.7);transition:.2s}
+.crumb .node:hover{color:var(--txt);border-color:var(--cyan)}
+.crumb .node.cur{color:#fff;background:linear-gradient(90deg,var(--cyan),#6366f1);border-color:transparent;font-weight:700;cursor:default}
+.crumb .sep{color:var(--dim)}
+.hintbar{font-size:11px;color:var(--sub);display:flex;align-items:center;gap:6px}
+.hintbar .dot{width:7px;height:7px;border-radius:50%;background:var(--cyan);box-shadow:0 0 8px var(--cyan)}
+
+/* 算法说明面板 */
+.algo{background:var(--card);border:1px solid var(--line2);border-radius:13px;padding:0 15px}
+.algo summary{cursor:pointer;padding:11px 0;font-size:13px;font-weight:600;list-style:none;display:flex;align-items:center;gap:8px}
+.algo summary::-webkit-details-marker{display:none}
+.algo summary::after{content:'▾';margin-left:auto;color:var(--cyan);transition:.2s}
+.algo[open] summary::after{transform:rotate(180deg)}
+.algo summary span{font-size:10.5px;color:var(--sub);font-weight:400}
+.algo[open] summary{border-bottom:1px solid var(--line)}
+.algo-body{padding:12px 0 16px}
+.algo-formula{font-size:15px;text-align:center;color:var(--txt);background:rgba(14,165,233,.08);border:1px solid rgba(14,165,233,.2);border-radius:10px;padding:12px;margin-bottom:12px;line-height:1.7}
+.algo-formula b{color:var(--gold)}
+.algo-formula-sub{font-size:11px;color:var(--sub);margin-top:6px}
+.algo-table{width:100%;border-collapse:collapse;font-size:11px}
+.algo-table th,.algo-table td{border:1px solid var(--line);padding:7px 9px;text-align:left;vertical-align:top;line-height:1.55}
+.algo-table th{background:rgba(14,165,233,.10);color:#0c4a6e;font-weight:600}
+.algo-table td{color:var(--sub)}
+.algo-table td:first-child{color:var(--txt);font-weight:600;white-space:nowrap}
+.algo-visa{font-size:11px;color:var(--sub);margin-top:12px;line-height:2.3}
+.vtag{padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;margin:0 3px}
+.v1{background:rgba(5,150,105,.12);color:#047857}
+.v2{background:rgba(2,132,199,.12);color:#0369a1}
+.v3{background:rgba(180,83,9,.12);color:#b45309}
+.v4{background:rgba(220,38,38,.12);color:#dc2626}
+.algo-note{font-size:10px;color:var(--dim);line-height:1.7;margin-top:12px;border-top:1px solid var(--line);padding-top:10px}
+
+/* KPI */
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpi{
+  background:var(--card);border:1px solid var(--line);border-radius:13px;padding:12px 15px;
+  box-shadow:0 8px 24px rgba(30,60,110,.08);position:relative;overflow:hidden;
+}
+.kpi .cap{font-size:11px;color:var(--sub)}
+.kpi .num{font-size:26px;font-weight:800;line-height:1.15;margin-top:4px;font-variant-numeric:tabular-nums}
+.kpi .sub{font-size:10.5px;color:var(--dim);margin-top:3px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.kpi.c1 .num{color:var(--cyan)}.kpi.c2 .num{color:var(--green)}.kpi.c3 .num{color:var(--gold)}.kpi.c4 .num{color:var(--amber)}
+
+/* 地图区 */
+.map-card{
+  background:var(--card);border:1px solid var(--line);border-radius:16px;padding:12px;
+  box-shadow:0 10px 30px rgba(30,60,110,.10);position:relative;
+}
+.map-card .hd{display:flex;justify-content:space-between;align-items:baseline;padding:2px 6px 10px;flex-wrap:wrap;gap:6px}
+.map-card .hd h2{font-size:15px}
+.map-card .hd .info{font-size:11px;color:#475569}
+#map{width:100%;height:min(56vh,560px);min-height:380px}
+
+/* 图表网格 */
+.grid{display:grid;gap:12px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g23{grid-template-columns:minmax(0,1.4fr) minmax(0,1fr)}
+.card{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px 14px;
+  box-shadow:0 8px 24px rgba(30,60,110,.08);
+}
+.card h3{font-size:13.5px;font-weight:600}
+.card .desc{font-size:10.5px;color:var(--sub);margin:3px 0 6px;line-height:1.5}
+.chart{width:100%;height:250px}
+.chart.sm{height:210px}
+.chart.lg{height:300px}
+.panel{display:none;animation:fade .3s ease}
+.panel.active{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.city-badge{
+  display:inline-flex;align-items:center;gap:5px;font-size:10.5px;padding:4px 9px;border-radius:999px;
+  background:rgba(14,165,233,.10);border:1px solid var(--line2);color:var(--txt);cursor:pointer;transition:.2s;
+}
+.city-badge:hover{background:rgba(14,165,233,.20);border-color:var(--cyan)}
+.badges{display:flex;flex-wrap:wrap;gap:7px;margin-top:6px}
+.visa-line{font-size:12px;margin:8px 0 4px;line-height:1.7}
+.toast{
+  position:fixed;left:50%;bottom:24px;transform:translateX(-50%);
+  background:rgba(255,255,255,.97);border:1px solid var(--cyan);color:var(--txt);
+  padding:10px 20px;border-radius:999px;font-size:12.5px;z-index:99;opacity:0;transition:.3s;pointer-events:none;
+  box-shadow:0 8px 30px rgba(30,60,110,.15);
+}
+.toast.show{opacity:1}
+.src{font-size:9.5px;color:var(--dim);line-height:1.6}
+@media(max-width:1180px){.kpis{grid-template-columns:repeat(2,1fr)}.g3{grid-template-columns:1fr 1fr}.g23{grid-template-columns:1fr}}
+@media(max-width:820px){.app{flex-direction:column}.sidebar{position:static;width:100%;height:auto}.g2,.g3{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- 左侧控制栏 -->
+  <aside class="sidebar">
+    <div class="brand">
+      <div class="logo">🌏</div>
+      <div><h1>目的地匹配地图</h1></div>
+    </div>
+
+    <div class="sec-title">你的旅行画像</div>
+    <div class="ctrl">
+      <label>月预算 <span class="val" id="v-budget">¥12,000</span></label>
+      <input type="range" id="s-budget" min="3000" max="40000" step="500" value="12000">
+      <div class="hint">预算÷当地物价=真实购买力。钱是硬约束，固定占匹配度60%</div>
+    </div>
+    <div class="ctrl">
+      <label>安全重视度 <span class="val" id="v-safety">60</span></label>
+      <input type="range" id="s-safety" min="0" max="100" step="5" value="60">
+      <div class="hint">安全分来自预期寿命+腐败感知指数+就业率（权威数据）</div>
+    </div>
+    <div class="ctrl">
+      <label>便利重视度 <span class="val" id="v-conv">50</span></label>
+      <input type="range" id="s-conv" min="0" max="100" step="5" value="50">
+      <div class="hint">便利分来自人类发展指数HDI+人均GDP（权威数据）</div>
+    </div>
+    <div class="btn-row">
+      <button class="btn" id="btn-lucky">🎲 随机人生</button>
+      <button class="btn" id="btn-reset">↺ 重置</button>
+    </div>
+
+    <div class="legend">
+      <div class="t">匹配度颜色标尺</div>
+      <div class="bar"></div>
+      <div class="lbl"><span>红 · 不匹配</span><span>绿 · 很适合</span></div>
+    </div>
+
+    <div class="side-foot" id="side-meta">数据加载中…</div>
+  </aside>
+
+  <!-- 右侧主区 -->
+  <main class="main">
+    <div class="topbar">
+      <div class="crumb" id="crumb"></div>
+      <div class="hintbar"><span class="dot"></span><span id="hint-text">双击国家下钻到城市</span></div>
+    </div>
+
+    <!-- 算法说明（折叠） -->
+    <details class="algo" id="algo-box">
+      <summary>📐 算法与数据说明</summary>
+      <div class="algo-body">
+        <div class="algo-formula">
+          匹配度 = <b>可负担分 × 60%</b> + <b>偏好分 × 40%</b>
+          <div class="algo-formula-sub">偏好分 = (安全分 × w<sub>安</sub> + 便利分 × w<sub>便</sub>) ÷ (w<sub>安</sub> + w<sub>便</sub>)　　w = 对应滑块值 ÷ 50（决定二者相对比重）</div>
+        </div>
+        <table class="algo-table">
+          <thead><tr><th>维度</th><th>数据来源（权威）</th><th>计算公式</th><th>作用与权重</th></tr></thead>
+          <tbody>
+            <tr><td>💰 可负担分</td><td>价格水平比率 ICP（世界银行 / OWID）</td><td>clamp(月预算 ÷ 相对中国物价 ÷ 22000, 0, 1) × 100</td><td>钱先划范围，固定占 <b>60%</b></td></tr>
+            <tr><td>🛡️ 安全分</td><td>预期寿命(UN) + 腐败感知指数(透明国际) + 失业率(ILO)</td><td>三项百分位 / 得分等权平均，归一到 0–100</td><td>偏好项之一，比重随滑块</td></tr>
+            <tr><td>🚄 便利分</td><td>人类发展指数 HDI(UNDP) + 人均GDP(世界银行)</td><td>(HDI×100 + log人均GDP百分位) ÷ 2</td><td>偏好项之一，比重随滑块</td></tr>
+            <tr><td>🛂 对华签证</td><td>中国领事服务网及各国使领馆公开信息（2026 年初）</td><td>四档客观事实分类</td><td>仅展示，<b>不参与打分</b></td></tr>
+          </tbody>
+        </table>
+        <div class="algo-visa">
+          <b>签证四档说明：</b>
+          <span class="vtag v1">免签</span> 无需提前办证 ·
+          <span class="vtag v2">落地签</span> 抵达后现场办理 ·
+          <span class="vtag v3">电子签</span> 网上提前申请电子许可 ·
+          <span class="vtag v4">需签证</span> 需向使领馆提前申请
+          <br><span style="color:var(--dim)">签证是国家详情里的客观展示项：它影响"能不能说走就走"，但为了让算法只依赖可量化的权威数据，不把它折算成分数。</span>
+        </div>
+        <div class="algo-note">诚实声明：国家级经济/社会指标来自权威公开数据（OWID 镜像世界银行 / ICP / UNDP / ILO / 透明国际）；相对中国物价 = 各国价格水平比率 ÷ 中国价格水平比率（中国=1）；签证为公开政策事实整理，会随政策变动，实际出行以官方最新公布为准；城市层特色与感受分为课程作业示例数据。所有计算过程已在上方公开，可逐项复核。</div>
+      </div>
+    </details>
+
+    <div class="kpis" id="kpis">
+      <div class="kpi c1"><div class="cap">预算内可去</div><div class="num" id="kpi-count">—</div><div class="sub">个国家 / 地区</div></div>
+      <div class="kpi c2"><div class="cap">最佳匹配</div><div class="num" id="kpi-best">—</div><div class="sub" id="kpi-best-sub">综合得分最高</div></div>
+      <div class="kpi c3"><div class="cap">性价比之王</div><div class="num" id="kpi-value">—</div><div class="sub">便宜又好玩</div></div>
+      <div class="kpi c4"><div class="cap">最省钱目的地</div><div class="num" id="kpi-cheap">—</div><div class="sub">相对中国物价最低</div></div>
+    </div>
+
+    <!-- ========== 第 1 层：世界 ========== -->
+    <div class="panel active" id="panel-world">
+      <div class="map-card">
+        <div class="hd">
+          <h2>🌍 世界匹配度地图</h2>
+          <div class="info">颜色 = 匹配度 · <span style="color:var(--green)">绿=适合</span> / <span style="color:var(--red)">红=不适合</span> · 浅灰=无物价数据 · <b>双击国家下钻</b></div>
+        </div>
+        <div id="map"></div>
+      </div>
+      <div class="grid g23" style="margin-top:12px">
+        <div class="card">
+          <h3>🏆 匹配度 Top 10</h3>
+          <div class="desc">随滑块实时重排，点条形可下钻到该国</div>
+          <div class="chart lg" id="c-rank"></div>
+        </div>
+        <div class="card">
+          <h3>🔻 筛选漏斗</h3>
+          <div class="desc">全世界 → 有物价数据 → 预算内 → 高匹配 → 推荐</div>
+          <div class="chart lg" id="c-funnel"></div>
+          <h3 style="margin-top:6px">💰 相对中国物价 · 最低TOP</h3>
+          <div class="desc">以中国物价=1，越小越便宜（世界银行/ICP）</div>
+          <div class="chart sm" id="c-cheap"></div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:12px">
+        <div class="card">
+          <h3>📊 物价 × 匹配度（气泡=安全分）</h3>
+          <div class="desc">每个点是一个国家，看"贵的真的更好吗"</div>
+          <div class="chart" id="c-bubble"></div>
+        </div>
+        <div class="card">
+          <h3>🥧 匹配度分布</h3>
+          <div class="desc">各国落入各匹配区间的数量</div>
+          <div class="chart" id="c-pie"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 第 2 层：国家 ========== -->
+    <div class="panel" id="panel-country">
+      <div class="card" id="country-hero">
+        <h3 id="country-title">—</h3>
+        <div class="desc" id="country-desc">—</div>
+        <div class="visa-line" id="country-visa"></div>
+        <div class="badges" id="country-cities"></div>
+      </div>
+      <div class="grid g23" style="margin-top:12px">
+        <div class="card">
+          <h3>🏙️ 城市匹配度 / 特色</h3>
+          <div class="desc">点选城市进入城市详情；同一套权重逻辑在 city 层重算</div>
+          <div class="chart lg" id="c-cityrank"></div>
+        </div>
+        <div class="card">
+          <h3>🕸️ 国家画像（五维）</h3>
+          <div class="desc">物价优势 / 安全 / 便利 / 签证 / 发展</div>
+          <div class="chart lg" id="c-countryradar"></div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:12px">
+        <div class="card">
+          <h3>💵 物价对比：本国 vs 中国 vs 世界均值</h3>
+          <div class="desc">相对物价指数（中国=1），来自价格水平比率</div>
+          <div class="chart" id="c-pricebar"></div>
+        </div>
+        <div class="card">
+          <h3>📈 国家关键指标</h3>
+          <div class="desc">人均GDP / HDI / 预期寿命 / 失业率（标准化）</div>
+          <div class="chart" id="c-countrymetrics"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ========== 第 3 层：城市 ========== -->
+    <div class="panel" id="panel-city">
+      <div class="card" id="city-hero">
+        <h3 id="city-title">—</h3>
+        <div class="desc" id="city-desc">—</div>
+        <div class="badges" id="city-compare"></div>
+      </div>
+      <div class="grid g23" style="margin-top:12px">
+        <div class="card">
+          <h3>🕸️ 城市五维画像</h3>
+          <div class="desc">安全 / 便利 / 美食 / 景点 / 性价比</div>
+          <div class="chart lg" id="c-cityradar"></div>
+        </div>
+        <div class="card">
+          <h3>🌤️ 最佳旅行月份</h3>
+          <div class="desc">12 个月舒适度（示例打分）</div>
+          <div class="chart lg" id="c-heat"></div>
+        </div>
+      </div>
+      <div class="grid g2" style="margin-top:12px">
+        <div class="card">
+          <h3>☁️ 城市特色标签</h3>
+          <div class="desc">教学示例标签</div>
+          <div class="chart" id="c-word"></div>
+        </div>
+        <div class="card">
+          <h3>🔀 城市多维对比</h3>
+          <div class="desc">本国城市在同维度上的横向比较</div>
+          <div class="chart" id="c-parallel"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="src" id="src-note" style="margin-top:4px"></div>
+  </main>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* =========================================================
+   目的地匹配地图
+   算法：数据算分 + 滑块定偏好，全部公式见页面"算法说明"
+   ========================================================= */
+const DATA = window.WORLD_DATA;
+const GEO  = window.WORLD_GEO;
+
+// ---------- 工具 ----------
+const $=id=>document.getElementById(id);
+const fmt=n=>Number(n).toLocaleString('zh-CN');
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function toast(msg){const t=$('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),1800)}
+
+// 颜色：匹配度映射到红→绿。区间设为实际分数范围 25-85，对比更明显
+function matchColor(score){
+  if(score==null||isNaN(score))return '#dbe4f0';
+  const LO=25,HI=85;                      // 实际分数主要落在这段，拉满色阶
+  score=clamp(score,LO,HI);
+  const stops=[[185,28,28],[234,88,12],[234,179,8],[101,163,13],[22,163,74]];
+  const p=(score-LO)/(HI-LO)*(stops.length-1),i=Math.min(Math.floor(p),stops.length-2),f=p-i;
+  const c=stops[i].map((v,k)=>Math.round(v+(stops[i+1][k]-v)*f));
+  return `rgb(${c[0]},${c[1]},${c[2]})`;
+}
+function scoreWord(s){return s>=75?'很适合':s>=58?'适合':s>=42?'可以考虑':s>=25?'不太合适':'不推荐'}
+
+// ---------- 状态（滑块只表达主观偏好） ----------
+const S={budget:12000,safety:60,conv:50,level:'world',country:null,city:null};
+
+// 注册地图
+echarts.registerMap('world',GEO);
+
+const charts={};
+function mk(id){if(!charts[id])charts[id]=echarts.init($(id),null,{renderer:'canvas'});return charts[id]}
+function baseDark(){return {backgroundColor:'transparent',textStyle:{color:'#1e293b',fontSize:11},
+  tooltip:{backgroundColor:'rgba(255,255,255,.97)',borderColor:'#0ea5e9',textStyle:{color:'#1e293b',fontSize:11},
+    extraCssText:'box-shadow:0 6px 20px rgba(30,60,110,.15);border-radius:8px'}}}
+
+// ---------- 核心算法（全部透明可查） ----------
+// 可负担分 A：把预算按当地物价折算成"相当于在中国有多少钱"，再除以参考线
+//   相对中国物价 p：中国=1，越小越便宜。参考线 ¥22000 = 舒适游的月预算当量
+//   例：预算¥6000去物价0.5的地方 → 相当于国内¥12000 → A=55
+function affordability(r){
+  const p=r.priceRatioCn;
+  if(p==null)return null;                // 无物价数据 → 不打分（地图灰色）
+  return clamp((S.budget/p)/22000*100, 0, 100);
+}
+// 偏好分 P：安全分与便利分按滑块权重加权平均（数据已算好，滑块只调相对比重）
+function prefScore(r){
+  const wS=S.safety/50, wC=S.conv/50;    // 滑块 0-100 → 权重 0-2
+  const s=r.safety!=null?r.safety:50, c=r.convenience!=null?r.convenience:50;
+  if(wS+wC<=0)return (s+c)/2;            // 两个都拉到0 → 等权兜底
+  return (s*wS+c*wC)/(wS+wC);
+}
+// 匹配度 = 钱(60%) + 偏好(40%)
+function matchScore(r){
+  const A=affordability(r);
+  if(A==null)return null;
+  return clamp(A*0.6+prefScore(r)*0.4, 0, 100);
+}
+// 城市匹配分：同一套逻辑（城市特色分 + 本国可负担分）
+function cityMatch(c,r){
+  const wS=S.safety/50, wC=S.conv/50, w=wS+wC;
+  const prefs=w>0?(c.safety*wS+c.convenience*wC)/w:(c.safety+c.convenience)/2;
+  const A=affordability(r)??50;
+  return clamp(prefs*0.6+A*0.4, 0, 100);
+}
+// 物价优势（用于雷达/性价比，数据驱动）
+function priceAdvantage(r){const p=r.priceRatioCn;if(p==null)return 50;return clamp((2.4-p)/(2.4-0.2)*100,0,100)}
+
+// ---------- 数据准备 ----------
+const COUNTRIES=DATA.countries;
+const byIso={};COUNTRIES.forEach(c=>byIso[c.iso3]=c);
+const worldPrices=COUNTRIES.filter(c=>c.priceRatioCn!=null).map(c=>c.priceRatioCn);
+const worldPriceAvg=worldPrices.reduce((a,b)=>a+b,0)/worldPrices.length;
+
+function countryName(c){return (c&&(c.nameZh||c.nameEn))||'—'}
+function vColor(t){return {'免签':'#059669','无需签证':'#059669','落地签':'#0284c7','电子签':'#b45309','需签证':'#dc2626'}[t]||'#64748b'}
+
+// ---------- 渲染：左侧元信息 ----------
+function renderMeta(){
+  const m=DATA.meta;
+  $('side-meta').innerHTML=`<b>数据来源</b><br>${m.sources}<br>覆盖 <b style="color:var(--cyan)">${m.countryCount}</b> 个国家/地区 · <b style="color:var(--cyan)">${m.cityCount}</b> 个城市<br>相对中国物价 = 各国价格水平比率 ÷ 中国（中国=1）<br>签证：公开政策整理，以官方最新为准`;
+}
+
+// ---------- 世界层：地图 ----------
+function renderWorldMap(scores){
+  const c=mk('map');
+  const data=[];
+  // geo.regions 直接给每个区域着色（geoIndex 模式下 series 的 itemStyle 不生效，必须用 regions）
+  const regions=[];
+  COUNTRIES.forEach(r=>{
+    const sc=scores[r.iso3];
+    data.push({
+      name:r.nameZh, value:sc!=null?Math.round(sc):null,
+      iso3:r.iso3, priceRatio:r.priceRatioCn, safety:r.safety, conv:r.convenience,
+      visa:r.visa?r.visa.type:'—', afford:affordability(r)!=null?Math.round(affordability(r)):null
+    });
+    if(sc!=null)regions.push({name:r.nameZh,itemStyle:{areaColor:matchColor(sc)}});
+  });
+  // 地图已用中文地名，regions 按 nameZh 精确着色，随分数实时更新
+  c.setOption({
+    ...baseDark(),
+    tooltip:{...baseDark().tooltip,trigger:'item',formatter:p=>{
+      const d=p.data;
+      if(!d||d.value==null)return `<b>${p.name}</b><br>暂无物价数据，未参与打分`;
+      return `<b style="font-size:13px">${d.name}</b><br>
+        <span style="color:#0284c7">匹配度 ${d.value}</span> · ${scoreWord(d.value)}<br>
+        相对中国物价 <b>${d.priceRatio!=null?d.priceRatio.toFixed(2)+'×':'—'}</b> · 可负担 ${d.afford}<br>
+        安全分 ${Math.round(d.safety)} · 便利分 ${Math.round(d.conv)}<br>
+        对华签证 <b style="color:${vColor(d.visa)}">${d.visa}</b><br>
+        <span style="color:#fbbf24">双击下钻城市 · 单击看详情</span>`;
+    }},
+    geo:{
+      map:'world',roam:true,zoom:1.2,center:[20,20],
+      itemStyle:{areaColor:'#dbe4f0',borderColor:'rgba(120,150,190,.55)',borderWidth:.7},
+      emphasis:{label:{show:false},itemStyle:{areaColor:'#7dd3fc',borderColor:'#fff',borderWidth:1.2}},
+      select:{label:{show:false},itemStyle:{areaColor:'#fbbf24'}},
+      selectedMode:'single',
+      regions:regions
+    },
+    series:[{type:'map',geoIndex:0,data:data,label:{show:false},emphasis:{label:{show:false}}}]
+  },true);
+  c.off('click');c.off('dblclick');
+  c.on('click',p=>{
+    const iso=isoOfName(p.name),r=byIso[iso];
+    if(r)toast(`${countryName(r)}：双击下钻看城市`);
+  });
+  c.on('dblclick',p=>{
+    const iso=isoOfName(p.name),r=byIso[iso];
+    if(r&&r.cities&&r.cities.length) drillCountry(iso);
+    else toast(r?`${countryName(r)} 暂无城市下钻数据`:'暂无数据');
+  });
+}
+// 中文地名 -> iso3
+const nameIso={};COUNTRIES.forEach(c=>nameIso[c.nameZh]=c.iso3);
+function isoOfName(n){return nameIso[n]||null}
+
+// ---------- 世界层：KPI ----------
+function renderKPI(scores){
+  let inBudget=0,best=null,bestS=-1,value=null,valueS=-1,cheap=null,cheapP=99;
+  COUNTRIES.forEach(r=>{
+    const sc=scores[r.iso3];
+    if(sc==null)return;
+    if(affordability(r)>=45)inBudget++;
+    if(sc>bestS){bestS=sc;best=r}
+    const vs=(r.hdi||0)*40+priceAdvantage(r)*0.6;
+    if(vs>valueS){valueS=vs;value=r}
+    if(r.priceRatioCn!=null&&r.priceRatioCn<cheapP){cheapP=r.priceRatioCn;cheap=r}
+  });
+  $('kpi-count').textContent=inBudget;
+  $('kpi-best').textContent=best?countryName(best):'—';
+  $('kpi-best-sub').textContent=best?`匹配度 ${Math.round(bestS)}`:'—';
+  $('kpi-value').textContent=value?countryName(value):'—';
+  $('kpi-cheap').textContent=cheap?countryName(cheap):'—';
+}
+
+// ---------- 世界层：Top10 排行 ----------
+function renderRank(scores){
+  const c=mk('c-rank');
+  const top=COUNTRIES.filter(r=>scores[r.iso3]!=null)
+    .sort((a,b)=>scores[b.iso3]-scores[a.iso3]).slice(0,10).reverse();
+  c.setOption({...baseDark(),
+    grid:{left:88,right:34,top:10,bottom:22},
+    tooltip:{...baseDark().tooltip,trigger:'axis',axisPointer:{type:'shadow'},formatter:p=>{
+      const r=top[p[0].dataIndex];return `<b>${countryName(r)}</b><br>匹配度 ${Math.round(scores[r.iso3])}<br>相对物价 ${r.priceRatioCn!=null?r.priceRatioCn.toFixed(2)+'×':'—'}<br>签证 ${r.visa?r.visa.type:'—'}`;
+    }},
+    xAxis:{type:'value',max:100,splitLine:{lineStyle:{color:'rgba(120,150,190,.20)'}},axisLabel:{color:'#64748b'}},
+    yAxis:{type:'category',data:top.map(countryName),axisLabel:{color:'#334155',fontSize:11},axisLine:{show:false},axisTick:{show:false}},
+    series:[{type:'bar',data:top.map(r=>({value:Math.round(scores[r.iso3]),itemStyle:{color:matchColor(scores[r.iso3]),borderRadius:[0,5,5,0]}})),
+      barWidth:'62%',label:{show:true,position:'right',color:'#334155',fontSize:10,formatter:'{c}'}}]
+  },true);
+  c.off('click');c.on('click',p=>{const r=top[p.dataIndex];if(r)drillCountry(r.iso3)});
+}
+
+// ---------- 世界层：漏斗 ----------
+function renderFunnel(scores){
+  const c=mk('c-funnel');
+  const total=COUNTRIES.length;
+  const priced=COUNTRIES.filter(r=>r.priceRatioCn!=null).length;
+  const inBudget=COUNTRIES.filter(r=>scores[r.iso3]!=null&&affordability(r)>=45).length;
+  const high=COUNTRIES.filter(r=>scores[r.iso3]>=60).length;
+  const rec=COUNTRIES.filter(r=>scores[r.iso3]>=72).length;
+  c.setOption({...baseDark(),
+    tooltip:{...baseDark().tooltip,trigger:'item',formatter:p=>`${p.name}<br><b>${p.value}</b> 个国家/地区`},
+    series:[{type:'funnel',left:'8%',top:8,bottom:8,width:'84%',sort:'descending',gap:3,
+      label:{show:true,position:'inside',color:'#06122e',fontWeight:700,fontSize:11,formatter:p=>`${p.name}  ${p.value}`},
+      itemStyle:{borderColor:'rgba(255,255,255,.9)',borderWidth:2},
+      data:[
+        {value:total,name:'全世界',itemStyle:{color:'#0ea5e9'}},
+        {value:priced,name:'有物价数据',itemStyle:{color:'#60a5fa'}},
+        {value:inBudget,name:'预算内',itemStyle:{color:'#818cf8'}},
+        {value:high,name:'高匹配≥60',itemStyle:{color:'#34d399'}},
+        {value:rec,name:'推荐≥72',itemStyle:{color:'#fbbf24'}},
+      ]}]
+  },true);
+}
+
+// ---------- 世界层：最便宜 TOP ----------
+function renderCheap(){
+  const c=mk('c-cheap');
+  const cheap=COUNTRIES.filter(r=>r.priceRatioCn!=null).sort((a,b)=>a.priceRatioCn-b.priceRatioCn).slice(0,8).reverse();
+  c.setOption({...baseDark(),
+    grid:{left:80,right:40,top:8,bottom:24},
+    tooltip:{...baseDark().tooltip,trigger:'axis',axisPointer:{type:'shadow'},formatter:p=>`${countryName(cheap[p[0].dataIndex])}<br>相对中国物价 <b>${p[0].value}×</b>`},
+    xAxis:{type:'value',axisLabel:{color:'#64748b',formatter:'{value}×'},splitLine:{lineStyle:{color:'rgba(120,150,190,.20)'}}},
+    yAxis:{type:'category',data:cheap.map(countryName),axisLabel:{color:'#334155',fontSize:10},axisLine:{show:false},axisTick:{show:false}},
+    series:[{type:'bar',data:cheap.map(r=>r.priceRatioCn.toFixed(2)),barWidth:'60%',
+      itemStyle:{color:'#34d399',borderRadius:[0,5,5,0]},label:{show:true,position:'right',color:'#34d399',fontSize:10,formatter:'{c}×'}}]
+  },true);
+}
+
+// ---------- 世界层：气泡散点 ----------
+function renderBubble(scores){
+  const c=mk('c-bubble');
+  const pts=COUNTRIES.filter(r=>r.priceRatioCn!=null&&scores[r.iso3]!=null).map(r=>({
+    value:[Math.round(r.priceRatioCn*100)/100,Math.round(scores[r.iso3]),Math.round(r.safety??50)],
+    name:countryName(r),iso3:r.iso3
+  }));
+  c.setOption({...baseDark(),
+    grid:{left:48,right:20,top:16,bottom:38},
+    tooltip:{...baseDark().tooltip,formatter:p=>`<b>${p.data.name}</b><br>相对物价 ${p.value[0]}×<br>匹配度 ${p.value[1]}<br>安全分 ${p.value[2]}`},
+    xAxis:{type:'value',name:'相对中国物价(×)',nameLocation:'middle',nameGap:24,nameTextStyle:{color:'#64748b',fontSize:10},
+      axisLabel:{color:'#64748b'},splitLine:{lineStyle:{color:'rgba(120,150,190,.18)'}}},
+    yAxis:{type:'value',name:'匹配度',min:0,max:100,axisLabel:{color:'#64748b'},splitLine:{lineStyle:{color:'rgba(120,150,190,.18)'}}},
+    series:[{type:'scatter',data:pts,symbolSize:d=>clamp(d[2]/8,5,22),
+      itemStyle:{color:p=>matchColor(p.value[1]),opacity:.85,borderColor:'rgba(100,130,180,.45)'},
+      emphasis:{itemStyle:{borderColor:'#fff',borderWidth:2}}}]
+  },true);
+  c.off('click');c.on('click',p=>{if(p.data&&p.data.iso3)drillCountry(p.data.iso3)});
+}
+
+// ---------- 世界层：匹配分布饼图 ----------
+function renderPie(scores){
+  const c=mk('c-pie');
+  const bins={'很适合 (≥72)':0,'适合 (58-71)':0,'可以考虑 (42-57)':0,'不太合适 (<42)':0};
+  COUNTRIES.forEach(r=>{const s=scores[r.iso3];if(s==null)return;
+    if(s>=72)bins['很适合 (≥72)']++;else if(s>=58)bins['适合 (58-71)']++;else if(s>=42)bins['可以考虑 (42-57)']++;else bins['不太合适 (<42)']++;
+  });
+  c.setOption({...baseDark(),
+    tooltip:{...baseDark().tooltip,trigger:'item',formatter:'{b}<br><b>{c}</b> 个 ({d}%)'},
+    legend:{bottom:0,textStyle:{color:'#64748b',fontSize:10},itemWidth:10,itemHeight:10},
+    series:[{type:'pie',radius:['42%','68%'],center:['50%','44%'],avoidLabelOverlap:true,
+      itemStyle:{borderColor:'#fff',borderWidth:2},
+      label:{show:true,color:'#334155',fontSize:10,formatter:'{c}'},
+      data:[
+        {value:bins['很适合 (≥72)'],name:'很适合 (≥72)',itemStyle:{color:'#16a34a'}},
+        {value:bins['适合 (58-71)'],name:'适合 (58-71)',itemStyle:{color:'#65a30d'}},
+        {value:bins['可以考虑 (42-57)'],name:'可以考虑 (42-57)',itemStyle:{color:'#eab308'}},
+        {value:bins['不太合适 (<42)'],name:'不太合适 (<42)',itemStyle:{color:'#dc2626'}},
+      ]}]
+  },true);
+}
+
+// ---------- 国家层 ----------
+function renderCountry(countryIso){
+  const r=byIso[countryIso];
+  if(!r)return;
+  $('country-title').textContent=`${countryName(r)}  ${r.nameEn}`;
+  const pl=r.priceRatioCn!=null?`相对中国物价 <b style="color:var(--gold)">${r.priceRatioCn.toFixed(2)}×</b>`:'物价数据缺失';
+  $('country-desc').innerHTML=`${pl} · 人均GDP $${r.gdpPc?fmt(Math.round(r.gdpPc)):'—'} · HDI ${r.hdi||'—'} · 腐败感知指数 ${r.corruption||'—'} · 预期寿命 ${r.lifeExpectancy?r.lifeExpectancy.toFixed(0):'—'} 岁`;
+  // 签证（客观展示，写明情况）
+  const v=r.visa||{type:'需签证',desc:''};
+  $('country-visa').innerHTML=`🛂 对华签证：<b style="color:${vColor(v.type)}">${v.type}</b> <span style="color:var(--sub)">— ${v.desc}</span>`;
+  // 城市徽章
+  const cities=r.cities||[];
+  $('country-cities').innerHTML=cities.length?cities.map(c=>`<span class="city-badge" data-city="${c.name_cn}">📍 ${c.name_cn}</span>`).join(''):'<span style="color:var(--sub);font-size:11px">该国暂无城市下钻数据</span>';
+  $('country-cities').querySelectorAll('.city-badge').forEach(b=>b.onclick=()=>{
+    const city=cities.find(x=>x.name_cn===b.dataset.city);if(city)drillCity(countryIso,city.name_cn);
+  });
+
+  // 城市排行
+  const c1=mk('c-cityrank');
+  const cs=cities.map(c=>({...c,score:cityMatch(c,r)})).sort((a,b)=>b.score-a.score);
+  if(cs.length){
+    c1.setOption({...baseDark(),grid:{left:80,right:36,top:12,bottom:24},
+      tooltip:{...baseDark().tooltip,trigger:'axis',axisPointer:{type:'shadow'},formatter:p=>{
+        const x=cs[p[0].dataIndex];return `<b>${x.name_cn}</b> ${x.name_en}<br>匹配度 ${Math.round(x.score)}<br>安全${x.safety} 便利${x.convenience} 美食${x.food} 景点${x.scenery}`;
+      }},
+      xAxis:{type:'value',max:100,axisLabel:{color:'#64748b'},splitLine:{lineStyle:{color:'rgba(120,150,190,.20)'}}},
+      yAxis:{type:'category',data:cs.map(x=>x.name_cn),axisLabel:{color:'#334155'},axisLine:{show:false},axisTick:{show:false}},
+      series:[{type:'bar',barWidth:'58%',data:cs.map(x=>({value:Math.round(x.score),itemStyle:{color:matchColor(x.score),borderRadius:[0,5,5,0]}})),
+        label:{show:true,position:'right',color:'#334155',fontSize:10,formatter:'{c}'}}]
+    },true);
+    c1.off('click');c1.on('click',p=>{const x=cs[p.dataIndex];if(x)drillCity(countryIso,x.name_cn)});
+  }else{c1.clear();c1.setOption({...baseDark(),graphic:[{type:'text',left:'center',top:'middle',style:{text:'暂无城市数据',fill:'#64748b',fontSize:13}}]},true)}
+
+  // 国家雷达（对华维度改为签证）
+  const c2=mk('c-countryradar');
+  const dims=[priceAdvantage(r),r.safety??50,r.convenience??50,r.visa?r.visa.score:50,r.hdi!=null?r.hdi*100:50];
+  c2.setOption({...baseDark(),
+    tooltip:{...baseDark().tooltip},
+    radar:{center:['50%','52%'],radius:'66%',
+      indicator:[{name:'物价优势',max:100},{name:'安全',max:100},{name:'便利',max:100},{name:'对华签证',max:100},{name:'人类发展',max:100}],
+      axisName:{color:'#0c4a6e',fontSize:10},splitLine:{lineStyle:{color:'rgba(120,150,190,.3)'}},splitArea:{areaStyle:{color:['rgba(14,165,233,.04)','rgba(14,165,233,.09)']}},axisLine:{lineStyle:{color:'rgba(120,150,190,.3)'}}},
+    series:[{type:'radar',data:[{value:dims.map(v=>Math.round(v)),name:countryName(r),
+      areaStyle:{color:'rgba(14,165,233,.22)'},lineStyle:{color:'#0ea5e9',width:2},itemStyle:{color:'#0ea5e9'}}]}]
+  },true);
+
+  // 物价对比条形
+  const c3=mk('c-pricebar');
+  const pr=r.priceRatioCn;
+  c3.setOption({...baseDark(),
+    grid:{left:70,right:40,top:14,bottom:24},
+    tooltip:{...baseDark().tooltip,trigger:'axis',axisPointer:{type:'shadow'},formatter:p=>`${p[0].name}<br><b>${p[0].value}×</b> ${p[0].name==='中国'?'（基准）':''}`},
+    xAxis:{type:'value',axisLabel:{color:'#64748b',formatter:'{value}×'},splitLine:{lineStyle:{color:'rgba(120,150,190,.20)'}}},
+    yAxis:{type:'category',data:['世界均值',countryName(r),'中国(基准)'],axisLabel:{color:'#334155',fontSize:10},axisLine:{show:false},axisTick:{show:false}},
+    series:[{type:'bar',barWidth:'52%',data:[
+      {value:+worldPriceAvg.toFixed(2),itemStyle:{color:'#818cf8',borderRadius:[0,5,5,0]}},
+      {value:pr!=null?+pr.toFixed(2):0,itemStyle:{color:matchColor(priceAdvantage(r)),borderRadius:[0,5,5,0]}},
+      {value:1,itemStyle:{color:'#94a3b8',borderRadius:[0,5,5,0]}},
+    ],label:{show:true,position:'right',color:'#334155',fontSize:11,formatter:'{c}×'}}]
+  },true);
+
+  // 关键指标（标准化到0-100）
+  const c4=mk('c-countrymetrics');
+  const normGDP=r.gdpPc!=null?clamp((Math.log10(r.gdpPc+1)-3)/2*100,0,100):0;
+  const normHDI=r.hdi!=null?r.hdi*100:0;
+  const normLife=r.lifeExpectancy!=null?clamp((r.lifeExpectancy-40)/(85-40)*100,0,100):0;
+  const lowUnemp=r.unemployment!=null?clamp((20-r.unemployment)/20*100,0,100):0;
+  c4.setOption({...baseDark(),
+    grid:{left:74,right:36,top:14,bottom:24},
+    tooltip:{...baseDark().tooltip,trigger:'axis',axisPointer:{type:'shadow'}},
+    xAxis:{type:'value',max:100,axisLabel:{color:'#64748b'},splitLine:{lineStyle:{color:'rgba(120,150,190,.20)'}}},
+    yAxis:{type:'category',data:['人均GDP(对数)','人类发展指数','预期寿命','就业水平'],axisLabel:{color:'#334155',fontSize:10},axisLine:{show:false},axisTick:{show:false}},
+    series:[{type:'bar',barWidth:'52%',data:[normGDP,normHDI,normLife,lowUnemp].map(v=>({value:Math.round(v),itemStyle:{color:'#0ea5e9',borderRadius:[0,5,5,0]}})),
+      label:{show:true,position:'right',color:'#0c4a6e',fontSize:10,formatter:'{c}'}}]
+  },true);
+}
+
+// ---------- 城市层 ----------
+function renderCity(countryIso,cityName){
+  const r=byIso[countryIso];
+  const city=(r.cities||[]).find(c=>c.name_cn===cityName);
+  if(!city)return;
+  S.city=cityName;
+  $('city-title').textContent=`${city.name_cn}  ${city.name_en}  ·  ${countryName(r)}`;
+  $('city-desc').innerHTML=`${city.desc}<br><span style="color:var(--sub)">标签：${city.tags.join(' / ')} · 最佳季节：${city.bestMonths.map(m=>m+'月').join('、')}</span>`;
+  const others=(r.cities||[]).filter(c=>c.name_cn!==cityName);
+  $('city-compare').innerHTML=others.map(c=>`<span class="city-badge" data-city="${c.name_cn}">↔ 对比 ${c.name_cn}</span>`).join('')||'<span style="color:var(--sub);font-size:11px">该国仅此一个城市</span>';
+  $('city-compare').querySelectorAll('.city-badge').forEach(b=>b.onclick=()=>drillCity(countryIso,b.dataset.city));
+
+  const c1=mk('c-cityradar');
+  c1.setOption({...baseDark(),
+    radar:{center:['50%','54%'],radius:'66%',
+      indicator:[{name:'安全',max:100},{name:'便利',max:100},{name:'美食',max:100},{name:'景点',max:100},{name:'性价比',max:100}],
+      axisName:{color:'#0c4a6e',fontSize:10},splitLine:{lineStyle:{color:'rgba(120,150,190,.3)'}},splitArea:{areaStyle:{color:['rgba(245,158,11,.05)','rgba(245,158,11,.10)']}},axisLine:{lineStyle:{color:'rgba(120,150,190,.3)'}}},
+    series:[{type:'radar',data:[{value:[city.safety,city.convenience,city.food,city.scenery,priceAdvantage(r)],name:city.name_cn,
+      areaStyle:{color:'rgba(245,158,11,.22)'},lineStyle:{color:'#d97706',width:2},itemStyle:{color:'#d97706'}}]}]
+  },true);
+
+  const c2=mk('c-heat');
+  const months=['1','2','3','4','5','6','7','8','9','10','11','12'];
+  const vals=months.map(m=>city.bestMonths.includes(+m)?Math.round(75+Math.random()*20):Math.round(30+Math.random()*30));
+  c2.setOption({...baseDark(),
+    grid:{left:36,right:16,top:16,bottom:30},
+    tooltip:{...baseDark().tooltip,formatter:p=>`${p.dataIndex+1}月<br>舒适度 <b>${p.value}</b>${city.bestMonths.includes(p.dataIndex+1)?' · 推荐':''}`},
+    xAxis:{type:'category',data:months,axisLabel:{color:'#64748b',fontSize:10},axisLine:{show:false},axisTick:{show:false}},
+    yAxis:{type:'category',data:['舒适'],axisLabel:{show:false},axisLine:{show:false},axisTick:{show:false}},
+    visualMap:{min:0,max:100,show:false,inRange:{color:['#e0f2fe','#bae6fd','#a7f3d0','#fde68a']}},
+    series:[{type:'heatmap',data:vals.map((v,i)=>[i,0,v]),label:{show:true,color:'#1e293b',fontWeight:700,fontSize:10,formatter:p=>p.value[2]},
+      itemStyle:{borderColor:'#fff',borderWidth:3}}]
+  },true);
+
+  const c3=mk('c-word');
+  const words=city.tags.map((t,i)=>({name:t,value:100-i*12}));
+  words.push({name:city.name_cn,value:70},{name:city.name_en,value:45});
+  c3.setOption({...baseDark(),
+    tooltip:{...baseDark().tooltip},
+    series:[{type:'wordCloud',shape:'circle',left:'center',top:'center',width:'92%',height:'92%',
+      sizeRange:[16,44],rotationRange:[-20,20],rotationStep:20,gridSize:8,
+      textStyle:{fontFamily:'PingFang SC',fontWeight:'bold',color:()=>`hsl(${195+Math.random()*70},70%,${38+Math.random()*15}%)`,
+        textShadowColor:'rgba(255,255,255,.8)',textShadowBlur:4},
+      data:words}]
+  },true);
+
+  const c4=mk('c-parallel');
+  const allCities=r.cities||[];
+  c4.setOption({...baseDark(),
+    tooltip:{...baseDark().tooltip},
+    parallelAxis:[
+      {dim:0,name:'安全',min:0,max:100,axisLabel:{color:'#64748b',fontSize:9},nameTextStyle:{color:'#0c4a6e',fontSize:10}},
+      {dim:1,name:'便利',min:0,max:100,axisLabel:{color:'#64748b',fontSize:9},nameTextStyle:{color:'#0c4a6e',fontSize:10}},
+      {dim:2,name:'美食',min:0,max:100,axisLabel:{color:'#64748b',fontSize:9},nameTextStyle:{color:'#0c4a6e',fontSize:10}},
+      {dim:3,name:'景点',min:0,max:100,axisLabel:{color:'#64748b',fontSize:9},nameTextStyle:{color:'#0c4a6e',fontSize:10}},
+    ],
+    parallel:{left:36,right:36,top:30,bottom:24,parallelAxisDefault:{lineStyle:{color:'rgba(120,150,190,.35)'}}},
+    series:[{type:'parallel',data:allCities.map(c=>[c.safety,c.convenience,c.food,c.scenery]),
+      lineStyle:{width:2,opacity:.7},emphasis:{lineStyle:{width:4,opacity:1}}}]
+  },true);
+}
+
+// ---------- 下钻导航 ----------
+function setPanel(level){
+  S.level=level;
+  ['world','country','city'].forEach(l=>$('panel-'+l).classList.toggle('active',l===level));
+  renderCrumb();
+  setTimeout(()=>Object.values(charts).forEach(c=>c.resize()),60);
+}
+function renderCrumb(){
+  let h=`<span class="node ${S.level==='world'?'cur':''}" onclick="goWorld()">🌍 世界</span>`;
+  if(S.country){const r=byIso[S.country];
+    h+=`<span class="sep">›</span><span class="node ${S.level==='country'?'cur':''}" onclick="goCountry()">${countryName(r)}</span>`;
+  }
+  if(S.city){h+=`<span class="sep">›</span><span class="node cur">${S.city}</span>`;}
+  $('crumb').innerHTML=h;
+  $('hint-text').textContent=S.level==='world'?'双击国家下钻到城市':S.level==='country'?'点击城市徽章或条形进入城市详情':'城市详情 · 点城市徽章横向对比';
+}
+function goWorld(){S.country=null;S.city=null;setPanel('world');updateAll()}
+function goCountry(){S.city=null;setPanel('country');renderCountry(S.country)}
+function drillCountry(iso){
+  const r=byIso[iso];if(!r)return;
+  if(!r.cities||!r.cities.length){toast(`${countryName(r)} 暂无城市下钻数据`);return}
+  S.country=iso;S.city=null;setPanel('country');renderCountry(iso);
+  toast(`已进入 ${countryName(r)} · ${r.cities.length} 个城市`);
+}
+function drillCity(iso,name){S.country=iso;S.city=name;setPanel('city');renderCity(iso,name)}
+
+// ---------- 主联动 ----------
+function computeScores(){const scores={};COUNTRIES.forEach(r=>scores[r.iso3]=matchScore(r));return scores}
+function updateAll(){
+  const scores=computeScores();
+  renderKPI(scores);
+  if(S.level==='world'){
+    renderWorldMap(scores);renderRank(scores);renderFunnel(scores);
+    renderCheap();renderBubble(scores);renderPie(scores);
+  }
+}
+
+// ---------- 滑块绑定 ----------
+function bindSlider(id,key,valId,fmtFn){
+  const el=$(id);
+  el.addEventListener('input',()=>{
+    S[key]=+el.value;$(valId).textContent=fmtFn?fmtFn(S[key]):S[key];
+    updateAll();
+    if(S.level==='country')renderCountry(S.country);
+    if(S.level==='city')renderCity(S.country,S.city);
+  });
+}
+bindSlider('s-budget','budget','v-budget',v=>'¥'+fmt(v));
+bindSlider('s-safety','safety','v-safety');
+bindSlider('s-conv','conv','v-conv');
+
+$('btn-reset').onclick=()=>{
+  Object.assign(S,{budget:12000,safety:60,conv:50});
+  $('s-budget').value=12000;$('s-safety').value=60;$('s-conv').value=50;
+  $('v-budget').textContent='¥12,000';$('v-safety').textContent=60;$('v-conv').textContent=50;
+  updateAll();if(S.level!=='world')goWorld();toast('已重置为默认画像');
+};
+$('btn-lucky').onclick=()=>{
+  const b=(Math.floor(Math.random()*60)+15)*500;
+  const sa=Math.floor(Math.random()*101),cv=Math.floor(Math.random()*101);
+  Object.assign(S,{budget:b,safety:sa,conv:cv});
+  $('s-budget').value=b;$('s-safety').value=sa;$('s-conv').value=cv;
+  $('v-budget').textContent='¥'+fmt(b);$('v-safety').textContent=sa;$('v-conv').textContent=cv;
+  updateAll();if(S.level!=='world')goWorld();
+  toast(`🎲 新人生：预算¥${fmt(b)} / 安全${sa} / 便利${cv}`);
+};
+
+// ---------- 初始化 ----------
+function init(){
+  renderMeta();
+  renderCrumb();
+  updateAll();
+  $('src-note').textContent='国家级经济/社会指标：Our World in Data（镜像世界银行 WDI / ICP / UNDP / ILO / 透明国际）；签证：公开政策整理（以官方最新为准）；城市特色分：课程作业示例。全部公式见上方「算法与数据说明」。';
+  window.addEventListener('resize',()=>Object.values(charts).forEach(c=>c.resize()));
+}
+init();
+</script>
+</body>
+</html>
